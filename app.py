@@ -29,7 +29,7 @@ spreadsheet_url = os.getenv("SPREADSHEET_URL")
 spreadsheet = client.open_by_url(spreadsheet_url)
 worksheet = spreadsheet.worksheet("Память")
 
-@app.route("/", methods=["GET", "POST"])
+@app.route("/webhook", methods=["POST"])
 def index():
     if request.method == "POST":
         user_input = request.json.get("text", "")
@@ -52,7 +52,7 @@ def index():
             return {"reply": reply}, 200
         except Exception as e:
             return {"error": str(e)}, 500
-    return {"message": "Я работаю!"}
+    
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
