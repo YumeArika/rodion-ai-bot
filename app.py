@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
-from openai import OpenAI
+import openai
 
 load_dotenv()
 
@@ -19,7 +19,7 @@ GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 GOOGLE_SHEET_TAB = os.environ.get("GOOGLE_SHEET_TAB", "Память")
 
 # Настройка OpenAI клиента
-client_ai = OpenAI(api_key=OPENAI_API_KEY)
+openai.api_key = OPENAI_API_KEY
 
 # Настройка Google Sheets
 try:
@@ -49,11 +49,11 @@ def webhook():
             print(f"[INFO] Сообщение от пользователя {user_id}: {user_message}")
 
             # Получаем ответ от OpenAI
-            response = client_ai.chat.completions.create(
+            response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
                 messages=[{"role": "user", "content": user_message}]
             )
-            bot_reply = response.choices[0].message.content.strip()
+            bot_reply = response["choices"][0]["message"]["content"].strip()
             print(f"[INFO] Ответ от бота: {bot_reply}")
 
             # Отправляем ответ пользователю
@@ -81,10 +81,3 @@ def send_message(chat_id, text):
             "text": text
         }
         r = requests.post(url, json=payload)
-        print(f"[INFO] Отправлен ответ: {r.status_code} {r.text}")
-    except Exception as e:
-        print(f"[ERROR] Ошибка при отправке сообщения: {e}")
-
-if __name__ == '__main__':
-    app.run(debug=True)
-
