@@ -1,80 +1,79 @@
 import os
+import json
+import requests
+from flask import Flask, request
 import openai
 import gspread
-from flask import Flask, request
 from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 from dotenv import load_dotenv
-import requests
 
 load_dotenv()
 
-app = Flask(__name__)
+# Восстанавливаем credentials.json из переменной окружения
+with open("credentials.json", "w") as f:
+    f.write(os.getenv("CREDS_JSON"))
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-
-# Авторизация Google Sheets
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+# Авторизация в Google Sheets
+scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 gc = gspread.authorize(credentials)
-sheet = gc.open_by_key(SPREADSHEET_ID).worksheet("Память")
+sheet = gc.open_by_key(os.getenv("SHEET_ID")).worksheet("Память")
 
-def get_last_prompt():
-    data = sheet.get_all_values()
-    if len(data) >= 1:
-        return data[-1][0]
-    return "Привет! Давай начнем."
+# OpenAI API
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def save_to_sheet(prompt, response):
-    sheet.append_row([prompt, response])
+# Telegram Bot Token
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
-def generate_response(prompt):
-    messages = [
-        {"role": "system", "content": "Ты внимательный, поддерживающий ИИ-помощник Родиону, архитектору интерьеров. Отвечай доброжелательно и по делу."},
-        {"role": "user", "content": prompt}
-    ]
-    completion = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=messages
-    )
-    return completion.choices[0].message['content'].strip()
+# Flask app
+app = Flask(__name__)
+
+def append_to_sheet(user_id, user_msg, bot_msg):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    sheet.append_row([now, str(user_id), user_msg, bot_msg])
 
 def send_message(chat_id, text):
+    url = f"{TELEGRAM_API_URL}/sendMessage"
+    payload = {"chat_id": chat_id, "text": text}
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": text
-        }
         r = requests.post(url, json=payload)
-    except Exception as e:
-        print(f"[ERROR] Ошибка при отправке сообщения: {e}")
+        r.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print("Ошибка отправки сообщения:", e)
 
-@app.route('/webhook', methods=["POST"])
+def get_gpt_response(prompt):
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print("Ошибка OpenAI:", e)
+        return "Произошла ошибка при обращении к OpenAI."
+
+@app.route('/', methods=['POST'])
 def webhook():
     data = request.get_json()
-    print("[INFO] Получены данные:", data)
+    if not data or "message" not in data:
+        return "no message", 400
 
-    if "message" in data and "text" in data["message"]:
-        chat_id = data["message"]["chat"]["id"]
-        prompt = data["message"]["text"]
+    message = data["message"]
+    chat_id = message["chat"]["id"]
+    user_msg = message.get("text", "")
 
-        print(f"[INFO] Сообщение от пользователя {chat_id}: {prompt}")
+    bot_msg = get_gpt_response(user_msg)
+    append_to_sheet(chat_id, user_msg, bot_msg)
+    send_message(chat_id, bot_msg)
 
-        try:
-            response = generate_response(prompt)
-            save_to_sheet(prompt, response)
-            send_message(chat_id, response)
-        except Exception as e:
-            print("[ERROR] Ошибка в webhook:", e)
-            send_message(chat_id, "Произошла ошибка. Попробуй позже.")
-
-    return "ok"
+    return "ok", 200
 
 @app.route('/')
 def index():
-    return "Бот работает!"
+    return "Bot is running."
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()
