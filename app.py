@@ -1,58 +1,48 @@
 import os
 import json
-from flask import Flask, request
 import openai
 import gspread
+from flask import Flask, request
 from oauth2client.service_account import ServiceAccountCredentials
 from dotenv import load_dotenv
 
 load_dotenv()
 
+openai.api_key = os.getenv("OPENAI_API_KEY")
+spreadsheet_url = os.getenv("GOOGLE_SPREADSHEET_URL")
+
+# Авторизация Google Sheets
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds_path = os.getenv("GOOGLE_CREDS")
+client = gspread.authorize(ServiceAccountCredentials.from_json_keyfile_name(creds_path, scope))
+spreadsheet = client.open_by_url(spreadsheet_url)
+
 app = Flask(__name__)
 
-# Инициализация OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
-# Подготовка доступа к Google Sheets через GOOGLE_CREDS
-creds_json = os.getenv("GOOGLE_CREDS")
-if not creds_json:
-    raise ValueError("GOOGLE_CREDS переменная окружения не найдена")
-
-with open("creds.json", "w") as f:
-    f.write(creds_json)
-
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
-client = gspread.authorize(creds)
-
-spreadsheet_url = os.getenv("SPREADSHEET_URL")
-spreadsheet = client.open_by_url(spreadsheet_url)
-worksheet = spreadsheet.worksheet("Память")
+@app.route("/")
+def index():
+    return "Bot is running", 200
 
 @app.route("/webhook", methods=["POST"])
-def index():
-    if request.method == "POST":
-        user_input = request.json.get("text", "")
-        if not user_input:
-            return {"error": "No input text provided"}, 400
+def webhook():
+    try:
+        data = request.get_json(force=True)
+        message = data.get("message", {}).get("text", "")
+        chat_id = data.get("message", {}).get("chat", {}).get("id")
 
-        prompt = f"Пользователь написал: {user_input}\nОтветь ему как мотивационный помощник:"
+        if not message or not chat_id:
+            return "No message or chat_id", 400
 
-        try:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7
-            )
-            reply = response.choices[0].message["content"].strip()
+        # Пример генерации ответа
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": message}]
+        )
+        answer = response.choices[0].message["content"]
 
-            # Сохраняем диалог в Google Таблицу
-            worksheet.append_row([user_input, reply])
-
-            return {"reply": reply}, 200
-        except Exception as e:
-            return {"error": str(e)}, 500
-    
+        return "OK", 200
+    except Exception as e:
+        return f"Error: {e}", 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(debug=True)
