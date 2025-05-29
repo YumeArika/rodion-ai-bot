@@ -1,13 +1,13 @@
 from flask import Flask, request
 import requests
-import openai
 import os
 from dotenv import load_dotenv
-load_dotenv()
-
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+import gspread
+from google.oauth2.service_account import Credentials
+from openai import OpenAI
+
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -18,12 +18,13 @@ CHAT_ID = os.environ.get("CHAT_ID")
 GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 GOOGLE_SHEET_TAB = os.environ.get("GOOGLE_SHEET_TAB", "Память")
 
-openai.api_key = OPENAI_API_KEY
+# Настройка OpenAI клиента
+client_ai = OpenAI(api_key=OPENAI_API_KEY)
 
 # Настройка Google Sheets
 try:
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    credentials = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
+    scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    credentials = Credentials.from_service_account_file("creds.json", scopes=scope)
     client = gspread.authorize(credentials)
     sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet(GOOGLE_SHEET_TAB)
 except Exception as e:
@@ -48,13 +49,11 @@ def webhook():
             print(f"[INFO] Сообщение от пользователя {user_id}: {user_message}")
 
             # Получаем ответ от OpenAI
-            response = openai.ChatCompletion.create(
+            response = client_ai.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "user", "content": user_message}
-                ]
+                messages=[{"role": "user", "content": user_message}]
             )
-            bot_reply = response["choices"][0]["message"]["content"].strip()
+            bot_reply = response.choices[0].message.content.strip()
             print(f"[INFO] Ответ от бота: {bot_reply}")
 
             # Отправляем ответ пользователю
