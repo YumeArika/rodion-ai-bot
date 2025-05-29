@@ -1,6 +1,6 @@
 flask
 requests
-openai
+openai==0.28
 gspread
 oauth2client
 python-dotenv
